@@ -1,12 +1,12 @@
 name: Build Nokia XG-040G-MD
 
-on:
+于:
   workflow_dispatch:
     inputs:
       ssh:
         description: 'SSH connection to Actions'
         required: false
-        default: 'true'
+        默认: 'true'
 
 env:
   REPO_URL: https://github.com/openwrt/openwrt
@@ -87,8 +87,7 @@ jobs:
         ./scripts/feeds install -a
         
         # 安装 TurboACC (使用 --no-sfe)
-        curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh && bash add_turboacc.sh --no-sfe
-
+        curl -sSL https://raw.githubusercontent.com/mufeng05/turboacc/luci/add_turboacc.sh -o add_turboacc.sh && bash add_turboacc.sh
     - name: Pre-configure ZRAM & Fix Config
       working-directory: ./openwrt
       run: |
