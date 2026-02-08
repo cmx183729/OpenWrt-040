@@ -38,45 +38,49 @@ jobs:
       run: |
         git clone --depth 1 --branch $REPO_BRANCH $REPO_URL openwrt
 
-    - name: Apply Custom Patches (搬运文件核心步骤)
+    - name: Add Feeds & Packages (添加插件源: rtp2httpd, lucky, passwall)
       run: |
-        # 1. 确保目标目录存在 (防止报错)
+        cd openwrt
+        
+        # --- 1. 添加 rtp2httpd (你的要求) ---
+        echo "src-git rtp2httpd https://github.com/stackia/rtp2httpd.git" >> feeds.conf.default
+        
+        # --- 2. 添加 Lucky 和 Passwall 源 ---
+        # 使用 Kenzo 和 Small 源，这是目前包含 Lucky 和 Passwall 最全、依赖最稳的源
+        echo "src-git kenzo https://github.com/kenzok8/openwrt-packages" >> feeds.conf.default
+        echo "src-git small https://github.com/kenzok8/small" >> feeds.conf.default
+        
+        echo "Feeds added successfully!"
+
+    - name: Apply Custom Patches (搬运文件步骤)
+      run: |
+        # 1. 确保目标目录存在
         mkdir -p openwrt/target/linux/airoha/an7581/base-files/etc/board.d/
         mkdir -p openwrt/target/linux/airoha/image/
         mkdir -p openwrt/target/linux/airoha/dts/
         mkdir -p openwrt/package/kernel/linux/modules/
 
-        # 2. 开始复制文件 (从你的 patch 文件夹复制到 openwrt 目录)
-        # 注意：这里假设你的文件都在 my_repo/patch/ 目录下
+        # 2. 开始复制文件 (从 my_repo/patch/ 复制到 openwrt/)
+        # 注意：请确保你的仓库里 patch 文件夹下有这6个文件
         
-        echo "Copying 02_network..."
+        echo "Copying patches..."
         cp -f my_repo/patch/02_network openwrt/target/linux/airoha/an7581/base-files/etc/board.d/02_network
-
-        echo "Copying an7581.mk..."
         cp -f my_repo/patch/an7581.mk openwrt/target/linux/airoha/image/an7581.mk
-
-        echo "Copying DTS file..."
         cp -f my_repo/patch/an7581-bell_xg-040g-md.dts openwrt/target/linux/airoha/dts/an7581-bell_xg-040g-md.dts
-
-        echo "Copying config-6.12..."
         cp -f my_repo/patch/config-6.12 openwrt/target/linux/airoha/an7581/config-6.12
-
-        echo "Copying target.mk..."
         cp -f my_repo/patch/target.mk openwrt/target/linux/airoha/an7581/target.mk
-
-        echo "Copying netdevices.mk..."
         cp -f my_repo/patch/netdevices.mk openwrt/package/kernel/linux/modules/netdevices.mk
         
-        echo "All patches applied successfully!"
+        echo "All patches applied!"
 
-    - name: Install TurboACC (添加加速模块)
+    - name: Update & Install Feeds (下载插件并安装)
       run: |
         cd openwrt
-        # 更新官方 feeds
+        # 更新源并安装
         ./scripts/feeds update -a
         ./scripts/feeds install -a
         
-        # 下载并安装 TurboACC (使用 --no-sfe 因为 Nokia 有 NPU)
+        # --- 3. 安装 TurboACC (带 --no-sfe) ---
         curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh && bash add_turboacc.sh --no-sfe
 
     - name: SSH connection to Actions
