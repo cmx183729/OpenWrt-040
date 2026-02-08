@@ -38,29 +38,28 @@ jobs:
       run: |
         git clone --depth 1 --branch $REPO_BRANCH $REPO_URL openwrt
 
-    - name: Add Feeds
+    - name: Add Feeds (添加插件源)
       working-directory: ./openwrt
       run: |
-        # 添加 rtp2httpd
+        # 1. 添加 rtp2httpd
         echo "src-git rtp2httpd https://github.com/stackia/rtp2httpd.git" >> feeds.conf.default
         
-        # 添加 Kenzo 和 Small 源 (Lucky/Passwall)
+        # 2. 添加 Kenzo 和 Small 源 (Lucky/Passwall/SmartDNS)
         echo "src-git kenzo https://github.com/kenzok8/openwrt-packages" >> feeds.conf.default
         echo "src-git small https://github.com/kenzok8/small" >> feeds.conf.default
         
         echo "Feeds added!"
 
-    - name: Apply Custom Patches
+    - name: Apply Custom Patches (应用补丁)
       run: |
-        # 创建目录
+        # 创建目录结构
         mkdir -p openwrt/target/linux/airoha/an7581/base-files/etc/board.d/
         mkdir -p openwrt/target/linux/airoha/image/
         mkdir -p openwrt/target/linux/airoha/dts/
         mkdir -p openwrt/package/kernel/linux/modules/
         mkdir -p openwrt/files/etc/uci-defaults/
 
-        # 复制补丁文件
-        # 务必确保仓库 patch 目录下有这些文件
+        # 复制补丁文件 (确保仓库 my_repo/patch/ 下有这些文件)
         cp -f my_repo/patch/02_network openwrt/target/linux/airoha/an7581/base-files/etc/board.d/02_network
         cp -f my_repo/patch/an7581.mk openwrt/target/linux/airoha/image/an7581.mk
         cp -f my_repo/patch/an7581-bell_xg-040g-md.dts openwrt/target/linux/airoha/dts/an7581-bell_xg-040g-md.dts
@@ -68,7 +67,7 @@ jobs:
         cp -f my_repo/patch/target.mk openwrt/target/linux/airoha/an7581/target.mk
         cp -f my_repo/patch/netdevices.mk openwrt/package/kernel/linux/modules/netdevices.mk
 
-        # 复制优化脚本
+        # 复制优化脚本 (BBR设置/时区设置)
         if [ -f "my_repo/patch/99-init-settings" ]; then
           cp -f my_repo/patch/99-init-settings openwrt/files/etc/uci-defaults/99-init-settings
           chmod +x openwrt/files/etc/uci-defaults/99-init-settings
@@ -79,91 +78,55 @@ jobs:
       run: |
         ./scripts/feeds update -a
         ./scripts/feeds install -a
-        # 这里已经删除了所有 TurboACC 相关的脚本
+        # 这里删除了所有 TurboACC 脚本，避免报错
 
-    - name: Fix
-name: Build Nokia XG-040G-MD
+    - name: Pre-configure Config (强制开启 ZRAM)
+      working-directory: ./openwrt
+      run: |
+        make defconfig
+        # 强制开启 ZRAM (内存压缩)，这对 512M 设备非常重要
+        sed -i '/CONFIG_PACKAGE_zram-swap/d' .config
+        echo "CONFIG_PACKAGE_zram-swap=y" >> .config
+        # 强制开启 htop 方便看负载
+        echo "CONFIG_PACKAGE_htop=y" >> .config
+        make defconfig
 
-on:
-  workflow_dispatch:
-    inputs:
-      ssh:
-        description: 'SSH connection to Actions'
-        required: false
-        默认: 'true'
-
-env:
-  REPO_URL: https://github.com/openwrt/openwrt
-  REPO_BRANCH: master
-  TZ: Asia/Shanghai
-
-jobs:
-  build:
-    runs-on: ubuntu-22.04
-
-    steps:
-    - name: Checkout My Repo
-      uses: actions/checkout@v4
-      with:
-        path: my_repo
-
-    - name: Initialization environment
+    - name: SSH connection to Actions
+      uses: P3TERX/ssh2actions@v1.0.0
+      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
       env:
-        DEBIAN_FRONTEND: noninteractive
-      run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
-        sudo -E apt-get -qq update
-        sudo -E apt-get -qq install $(curl -fsSL git.io/depends-ubuntu-2204)
-        sudo -E apt-get -qq autoremove --purge
-        sudo -E apt-get -qq clean
-        sudo timedatectl set-timezone "$TZ"
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
-    - name: Clone OpenWrt Source
-      run: |
-        git clone --depth 1 --branch $REPO_BRANCH $REPO_URL openwrt
-
-    - name: Add Feeds
+    - name: Download package
       working-directory: ./openwrt
+      id: package
       run: |
-        # 添加 rtp2httpd
-        echo "src-git rtp2httpd https://github.com/stackia/rtp2httpd.git" >> feeds.conf.default
-        
-        # 添加 Kenzo 和 Small 源 (Lucky/Passwall)
-        echo "src-git kenzo https://github.com/kenzok8/openwrt-packages" >> feeds.conf.default
-        echo "src-git small https://github.com/kenzok8/small" >> feeds.conf.default
-        
-        echo "Feeds added!"
+        make download -j8
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
 
-    - name: Apply Custom Patches
-      run: |
-        # 创建目录
-        mkdir -p openwrt/target/linux/airoha/an7581/base-files/etc/board.d/
-        mkdir -p openwrt/target/linux/airoha/image/
-        mkdir -p openwrt/target/linux/airoha/dts/
-        mkdir -p openwrt/package/kernel/linux/modules/
-        mkdir -p openwrt/files/etc/uci-defaults/
-
-        # 复制补丁文件
-        # 务必确保仓库 patch 目录下有这些文件
-        cp -f my_repo/patch/02_network openwrt/target/linux/airoha/an7581/base-files/etc/board.d/02_network
-        cp -f my_repo/patch/an7581.mk openwrt/target/linux/airoha/image/an7581.mk
-        cp -f my_repo/patch/an7581-bell_xg-040g-md.dts openwrt/target/linux/airoha/dts/an7581-bell_xg-040g-md.dts
-        cp -f my_repo/patch/config-6.12 openwrt/target/linux/airoha/an7581/config-6.12
-        cp -f my_repo/patch/target.mk openwrt/target/linux/airoha/an7581/target.mk
-        cp -f my_repo/patch/netdevices.mk openwrt/package/kernel/linux/modules/netdevices.mk
-
-        # 复制优化脚本
-        if [ -f "my_repo/patch/99-init-settings" ]; then
-          cp -f my_repo/patch/99-init-settings openwrt/files/etc/uci-defaults/99-init-settings
-          chmod +x openwrt/files/etc/uci-defaults/99-init-settings
-        fi
-
-    - name: Update & Install Feeds
+    - name: Compile the firmware
       working-directory: ./openwrt
+      id: compile
       run: |
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
-        # 这里已经删除了所有 TurboACC 相关的脚本
+        echo -e "$(nproc) thread compile"
+        make -j$(nproc) || make -j1 || make -j1 V=s
+        echo "status=success" >> $GITHUB_OUTPUT
 
-    - name: Fix
+    - name: Organize files
+      id: organize
+      if: steps.compile.outputs.status == 'success' && !cancelled()
+      run: |
+        cd openwrt/bin/targets/*/*
+        rm -rf packages
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Upload firmware directory
+      uses: actions/upload-artifact@v4
+      if: steps.organize.outputs.status == 'success' && !cancelled()
+      with:
+        name: OpenWrt_firmware
+        path: ${{ env.FIRMWARE }}
 
