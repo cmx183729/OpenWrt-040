@@ -1,0 +1,37 @@
+#!/bin/sh
+
+# --- 1. 设置时区为中国/上海 ---
+uci set system.@system[0].timezone='CST-8'
+uci set system.@system[0].zonename='Asia/Shanghai'
+uci commit system
+
+# --- 2. 自动配置并开启 ZRAM (内存扩展) ---
+# 512MB 物理内存建议给 256MB ZRAM，防止内存溢出
+if [ -f /etc/config/system ]; then
+    uci set system.@system[0].zram_size_mb='256'
+    uci set system.@system[0].zram_comp_algo='zstd'
+    uci commit system
+fi
+
+# --- 3. 网络内核参数优化 (Sysctl) ---
+# 增加并发连接数，开启 BBR (如果内核支持)
+sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
+sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
+echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+echo "net.core.default_qdisc=fq_pie" >> /etc/sysctl.conf
+echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+echo "net.ipv4.tcp_tw_reuse=1" >> /etc/sysctl.conf
+echo "net.ipv4.tcp_fin_timeout=30" >> /etc/sysctl.conf
+echo "net.ipv4.tcp_keepalive_time=1200" >> /etc/sysctl.conf
+echo "net.netfilter.nf_conntrack_max=65535" >> /etc/sysctl.conf
+
+# 应用内核参数
+sysctl -p
+
+# --- 4. 修改默认管理 IP (可选，防止冲突) ---
+# 默认通常是 192.168.1.1，如果你想改，把下面这行的 # 去掉并修改 IP
+# uci set network.lan.ipaddr='192.168.2.1'
+# uci commit network
+
+exit 0
+
