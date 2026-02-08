@@ -1,6 +1,6 @@
 name: Build Nokia XG-040G-MD
 
-于:
+on:
   workflow_dispatch:
     inputs:
       ssh:
