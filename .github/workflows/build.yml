@@ -1,0 +1,121 @@
+name: Build Nokia XG-040G-MD
+
+on:
+  workflow_dispatch:
+    inputs:
+      ssh:
+        description: 'SSH connection to Actions'
+        required: false
+        default: 'true'
+
+env:
+  REPO_URL: https://github.com/openwrt/openwrt
+  REPO_BRANCH: master
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout My Repo (获取你的 patch 文件)
+      uses: actions/checkout@main
+      with:
+        path: my_repo
+
+    - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install $(curl -fsSL git.io/depends-ubuntu-2204)
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
+        sudo timedatectl set-timezone "$TZ"
+
+    - name: Clone OpenWrt Source (克隆官方源码)
+      run: |
+        git clone --depth 1 --branch $REPO_BRANCH $REPO_URL openwrt
+
+    - name: Apply Custom Patches (搬运文件核心步骤)
+      run: |
+        # 1. 确保目标目录存在 (防止报错)
+        mkdir -p openwrt/target/linux/airoha/an7581/base-files/etc/board.d/
+        mkdir -p openwrt/target/linux/airoha/image/
+        mkdir -p openwrt/target/linux/airoha/dts/
+        mkdir -p openwrt/package/kernel/linux/modules/
+
+        # 2. 开始复制文件 (从你的 patch 文件夹复制到 openwrt 目录)
+        # 注意：这里假设你的文件都在 my_repo/patch/ 目录下
+        
+        echo "Copying 02_network..."
+        cp -f my_repo/patch/02_network openwrt/target/linux/airoha/an7581/base-files/etc/board.d/02_network
+
+        echo "Copying an7581.mk..."
+        cp -f my_repo/patch/an7581.mk openwrt/target/linux/airoha/image/an7581.mk
+
+        echo "Copying DTS file..."
+        cp -f my_repo/patch/an7581-bell_xg-040g-md.dts openwrt/target/linux/airoha/dts/an7581-bell_xg-040g-md.dts
+
+        echo "Copying config-6.12..."
+        cp -f my_repo/patch/config-6.12 openwrt/target/linux/airoha/an7581/config-6.12
+
+        echo "Copying target.mk..."
+        cp -f my_repo/patch/target.mk openwrt/target/linux/airoha/an7581/target.mk
+
+        echo "Copying netdevices.mk..."
+        cp -f my_repo/patch/netdevices.mk openwrt/package/kernel/linux/modules/netdevices.mk
+        
+        echo "All patches applied successfully!"
+
+    - name: Install TurboACC (添加加速模块)
+      run: |
+        cd openwrt
+        # 更新官方 feeds
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+        
+        # 下载并安装 TurboACC (使用 --no-sfe 因为 Nokia 有 NPU)
+        curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh && bash add_turboacc.sh --no-sfe
+
+    - name: SSH connection to Actions
+      uses: P3TERX/ssh2actions@v1.0.0
+      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
+      env:
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+
+    - name: Download package
+      id: package
+      run: |
+        cd openwrt
+        make defconfig
+        make download -j8
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
+
+    - name: Compile the firmware
+      id: compile
+      run: |
+        cd openwrt
+        echo -e "$(nproc) thread compile"
+        make -j$(nproc) || make -j1 || make -j1 V=s
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Organize files
+      id: organize
+      if: steps.compile.outputs.status == 'success' && !cancelled()
+      run: |
+        cd openwrt/bin/targets/*/*
+        rm -rf packages
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Upload firmware directory
+      uses: actions/upload-artifact@main
+      if: steps.organize.outputs.status == 'success' && !cancelled()
+      with:
+        name: OpenWrt_firmware
+        path: ${{ env.FIRMWARE }}
+
